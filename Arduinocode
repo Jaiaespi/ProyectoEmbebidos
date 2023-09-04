@@ -1,0 +1,265 @@
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27,16,2);  //sometimes the adress is not 0x3f. Change to 0x27 if it dosn't work.
+//Fingerprint libraries
+#include <Adafruit_Fingerprint.h>
+#include <SoftwareSerial.h>
+int getFingerprintIDez();
+SoftwareSerial mySerial(2, 3);  // pin #2 is IN from sensor (GREEN wire)/ pin #3 is OUT from arduino (WHITE wire)
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+/////////////////////////////////////Input and outputs////////////////////////////////////////////////
+int scan_pin = 8;      //Pin for the scan push button
+int add_id_pin = 9;    //Pin for the add new ID push button
+int close_door = 7;     //Pin to close the door button
+int puertaoff = 6;       //Pin for red led
+int puertaon = 4;        //Pin for green led
+int main_user_ID = 1;    //Main user ID be always the first one
+int Rele_pin = 10;
+bool locked = true;      //State of the door, always locked before validation
+bool scanning = false;
+int id_other = 2;
+
+void setup() {
+  Serial.begin(57600);        //Start serial communication for fingerprint TX RX data. 
+  lcd.init();                     //Init the LCD with i2c communication and print text
+  lcd.backlight();                //Activate the backlight of the screen
+  lcd.setCursor(0,0);             //Set the cursor on the upper left corner 
+  lcd.print(" Welcome  again ");   //Print the initial message
+  lcd.setCursor(0,1);              //Set the cursor on the lower left corner
+  lcd.print("  System  V1.0  ");   //Print the initial message
+  delay(3000);
+  
+  //Define pins as outputs or inputs
+  pinMode(scan_pin,INPUT);  
+  pinMode(add_id_pin,INPUT);  
+  pinMode(close_door,INPUT);  
+  finger.begin(57600);
+  if(finger.verifyPassword()){
+  Serial.println("Sensor de huella encontrado.");
+  }else{
+  Serial.println("No se encontró un sensor de huella.");
+  }
+}
+
+void loop() {
+  
+  lcd.setCursor(0,0);
+  lcd.print("presione un bot ");
+  lcd.setCursor(0,1);
+  lcd.print(" -----****----- ");
+  
+  delay(100);
+  if(digitalRead(scan_pin)==1){
+    getFingerprintID();
+    delay(2000);
+  }
+  
+  delay(100);
+  if(digitalRead(add_id_pin)==1){
+    addId();
+    delay(2000);
+  }
+
+  delay(100);
+  if(digitalRead(close_door)==1){
+    closedoor();
+    delay(2000);
+  }
+}
+
+//Close door button method
+void closedoor(){
+  if(scanning==false){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Cerrando  puerta");
+  lcd.setCursor(0,1);
+  lcd.print(" -----****----- ");
+  digitalWrite(Rele_pin, HIGH);     //Activation of door´s rele
+  digitalWrite(puertaoff, HIGH);    //Activation of the red led
+  digitalWrite(puertaon, LOW);
+  delay(4000);
+  lcd.clear();
+  locked = true;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------------------
+
+//Scan fingerprint method
+void scanfinger(){
+  scanning = true;
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Coloque su dedo ");
+  lcd.setCursor(0,1);
+  lcd.print("---Escaneando---");
+  Serial.print("estoy esperando huella");
+  delay(5000);
+  
+  uint8_t p = finger.getImage();
+  if (p != FINGERPRINT_OK)  return -1;
+
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK)  return -1;
+
+  p = finger.fingerFastSearch();
+  if(p != FINGERPRINT_OK)
+  {
+  delay(1000);
+  Serial.print("Entre a la validacion negativa");
+  lcd.clear();
+  lcd.write("Usuario invalido");
+  lcd.setCursor(0,1);
+  lcd.write("acceso  denegado");
+  closedoor();
+  delay(3000);
+  }
+  else{
+    // found a match!
+  Serial.print("Encontre un match");
+  lcd.clear();
+  delay(1000);
+  lcd.write(" Usuario valido ");
+  Serial.print("Debera escribir usuario valido");
+  lcd.setCursor(0,1);
+  delay(1000);
+  lcd.write("acceso concedido");
+  digitalWrite(Rele_pin, LOW);      //Deactivation of door´s rele
+  Serial.print("Debera encender el rele");
+  digitalWrite(puertaoff, LOW);    //Deactivation of the red led
+  digitalWrite(puertaon, HIGH);
+  Serial.print("Debera encender el led verde y apagar el rojo");
+  delay(8000);
+  digitalWrite(puertaon, LOW);
+  }
+  
+}
+
+////////////////////////////////////////
+uint8_t getFingerprintID() {
+  lcd.clear();
+  lcd.print("Coloque su dedo");
+  delay(3000);
+  uint8_t p = finger.getImage();
+  if (p != FINGERPRINT_OK) {
+    lcd.clear();
+    lcd.print("No se pudo leer");
+    lcd.setCursor(0, 1);
+    lcd.print("la huella.");
+    delay(2000);
+    return p;
+  }
+
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK) {
+    return p;
+  }
+
+  p = finger.fingerFastSearch();
+  if (p != FINGERPRINT_OK) {
+    lcd.clear();
+    lcd.print("Huella no encontrada.");
+    delay(2000);
+    return p;
+  }
+  
+  lcd.clear();
+  lcd.print("Huella encontrada!");
+  lcd.setCursor(0, 1);
+  lcd.print("ID: ");
+  lcd.print(finger.fingerID);
+  delay(2000);
+  return finger.fingerID;
+}
+
+////////////////////////////////////////////////////////////////
+bool recordNewFingerprint() {
+  lcd.clear();
+  lcd.print("Coloque el dedo");
+  lcd.setCursor(0, 1);
+  lcd.print("varias veces.");
+  delay(4000);
+  
+  int p = -1;
+  int i = 1;
+  while (i < 2) {  // Intenta grabar la nueva huella tres veces
+    p = finger.getImage();
+    if (p == FINGERPRINT_OK) {
+      lcd.clear();
+      lcd.print("Leída imagen ");
+      delay(2000);
+      p = finger.image2Tz(1);
+      if (p != FINGERPRINT_OK) {
+        lcd.clear();
+        lcd.print("No se pudo convertir");
+        lcd.setCursor(0, 1);
+        lcd.print("la imagen en huella.");
+        delay(2000);
+        break;
+      }
+      i++;
+    } else {
+      lcd.clear();
+      lcd.print("No se pudo leer");
+      lcd.setCursor(0, 1);
+      lcd.print("la imagen de huella.");
+      delay(2000);
+      break;
+    }
+  }
+  
+    p = finger.storeModel(id_other);
+    if (p != FINGERPRINT_OK) {
+      lcd.clear();
+      lcd.print("No se pudo almacenar");
+      lcd.setCursor(0, 1);
+      lcd.print("el modelo de huella.");
+      delay(2000);
+      return false;
+    }
+  lcd.clear();
+  lcd.print("Guardado en:");
+  lcd.setCursor(0, 1);
+  lcd.print(id_other);
+  delay(2000);
+  if(id_other >=150){
+    id_other = 2;
+  }
+  id_other = id_other +1;
+
+  return true;
+}
+
+void addId(){
+  lcd.clear();
+  lcd.print("Por favor, coloque");
+  lcd.setCursor(0, 1);
+  lcd.print("su dedo.");
+  delay(3000);
+  while (getFingerprintID()!= 1) {
+    // Espera hasta que la huella sea validada
+  }
+  
+  lcd.clear();
+  lcd.print("Huella validada.");
+  delay(2000);
+  // Grabar nueva huella
+  if (recordNewFingerprint()) {
+    lcd.clear();
+    lcd.print("Nueva huella");
+    lcd.setCursor(0, 1);
+    lcd.print("grabada exitosamente.");
+    delay(2000);
+  } else {
+    lcd.clear();
+    lcd.print("No se pudo grabar");
+    lcd.setCursor(0, 1);
+    lcd.print("la nueva huella.");
+    delay(2000);
+  }
+  
+  delay(1000);
+}
